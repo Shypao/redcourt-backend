@@ -123,6 +123,7 @@ export async function PATCH(request: Request) {
     try {
       await db.batch([
         db.delete(activeGamePlayers).where(eq(activeGamePlayers.gameId, gameId)),
+        db.update(activeGames).set({ queueOrder: JSON.stringify(lineup.map((player) => player.name)) }).where(eq(activeGames.id, gameId)),
         ...lineup.map((player) => db.insert(players).values({ id: player.id, name: player.name, normalizedName: player.name, contact: player.contact, level: player.level, gender: player.gender, createdAt: now, updatedAt: now }).onConflictDoUpdate({ target: players.id, set: { name: player.name, normalizedName: player.name, level: player.level, gender: player.gender, updatedAt: now } })),
         ...lineup.map((player) => db.insert(activeGamePlayers).values({ gameId, playerId: player.id, playerName: player.name, playerLevel: player.level, playerGender: player.gender })),
         ...incoming.map((player) => db.update(queueEntries).set({ status: "playing", standbyTableNumber: null, joinedAt: now, updatedAt: now }).where(eq(queueEntries.playerId, player.id))),
@@ -133,7 +134,7 @@ export async function PATCH(request: Request) {
       if (isPlayerNameUniqueConstraintError(error)) return Response.json({ error: "A player with that name was added by another staff member. Refresh and try again." }, { status: 409 });
       throw error;
     }
-    return Response.json({ ok: true, timerPreserved: true });
+    return Response.json({ ok: true, timerPreserved: true, players: lineup });
   }
 
   const hasCourtMove = body.courtId !== undefined && body.courtId !== null;
