@@ -28,13 +28,27 @@ export async function GET() {
       return {
         ...court,
         status: court.maintenance ? "maintenance" : game ? "playing" : reservation ? "reserved" : "available",
-        game: game ? { ...game, players: livePlayers.filter((player) => player.gameId === game.id).map((player) => ({ ...player, playerName: normalizePlayerName(player.playerName) })), shuttlecocksUsed: game.shuttlecockPriceCentavos > 0 ? 1 : 0, currentRevenueCentavos: liveBillings.filter((row) => row.gameId === game.id).reduce((sum, row) => sum + row.totalDueCentavos, 0) || game.shuttlecockPriceCentavos, bettingCentavos: liveBillings.filter((row) => row.gameId === game.id).reduce((sum, row) => sum + row.betAmountCentavos, 0), bettingStatus: liveBillings.some((row) => row.gameId === game.id && row.betAmountCentavos > 0) ? "Bets recorded" : "No bets" } : null,
+        game: game ? { ...game, players: orderedGamePlayers(game.queueOrder, livePlayers.filter((player) => player.gameId === game.id)), shuttlecocksUsed: game.shuttlecockPriceCentavos > 0 ? 1 : 0, currentRevenueCentavos: liveBillings.filter((row) => row.gameId === game.id).reduce((sum, row) => sum + row.totalDueCentavos, 0) || game.shuttlecockPriceCentavos, bettingCentavos: liveBillings.filter((row) => row.gameId === game.id).reduce((sum, row) => sum + row.betAmountCentavos, 0), bettingStatus: liveBillings.some((row) => row.gameId === game.id && row.betAmountCentavos > 0) ? "Bets recorded" : "No bets" } : null,
         reservation: reservation ? { ...reservation, customerName: normalizePlayerName(reservation.customerName) } : null,
       };
     }),
     reservations: todayReservations.map((reservation) => ({ ...reservation, customerName: normalizePlayerName(reservation.customerName) })),
     completedGames: completedGames.map((match) => ({ ...match, playerNames: JSON.stringify(JSON.parse(match.playerNames || "[]").map((name: unknown) => normalizePlayerName(name))) })),
   });
+}
+
+function orderedGamePlayers(queueOrder: string, gamePlayers: (typeof activeGamePlayers.$inferSelect)[]) {
+  let names: string[] = [];
+  try {
+    const parsed = JSON.parse(queueOrder);
+    if (Array.isArray(parsed)) names = parsed.map((name) => normalizePlayerName(name));
+  } catch {
+    // Older or malformed metadata falls back to the player rows below.
+  }
+  const position = new Map(names.map((name, index) => [name, index]));
+  return gamePlayers
+    .map((player) => ({ ...player, playerName: normalizePlayerName(player.playerName) }))
+    .sort((a, b) => (position.get(a.playerName) ?? Number.MAX_SAFE_INTEGER) - (position.get(b.playerName) ?? Number.MAX_SAFE_INTEGER));
 }
 
 export async function PATCH(request: Request) {
