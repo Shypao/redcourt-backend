@@ -113,8 +113,9 @@ export async function PATCH(request: Request) {
   if (!entries.length) return Response.json({ error: "Queue player not found" }, { status: 404 });
   const user = await getChatGPTUser();
   const tableNumber = Number(body.tableNumber);
+  const assignedTableNumber = Number.isInteger(tableNumber) && tableNumber > 0 ? tableNumber : 1;
   const updates = action === "standby"
-    ? { status: "standby", standbyTableNumber: Number.isInteger(tableNumber) && tableNumber > 0 ? tableNumber : 1, joinedAt: now, updatedAt: now }
+    ? { status: "standby", standbyTableNumber: assignedTableNumber, joinedAt: now, updatedAt: now }
     : action === "back"
       ? { status: "waiting", standbyTableNumber: null, joinedAt: now, updatedAt: now }
       : action === "remove"
@@ -123,8 +124,14 @@ export async function PATCH(request: Request) {
             ? { playerLevel: normalizePlayerLevel(body.level), updatedAt: now }
             : { notes: cleanText(body.notes, 300) || null, updatedAt: now };
   const logType = action === "standby" ? "standby_assigned" : action === "back" ? "queue_returned" : action === "remove" ? "queue_removed" : action === "level" ? "player_level_changed" : "queue_notes_updated";
+  const queueUpdates = action === "standby"
+    // `ids` is the order in which the staff selected the players. Keep that
+    // exact order so positions 1+2 and 3+4 remain the intended teams after a
+    // refresh (for example 1,4,2,3 becomes 1 & 4 vs 2 & 3).
+    ? ids.map((id, playerIndex) => db.update(queueEntries).set({ ...updates, joinedAt: now + playerIndex }).where(eq(queueEntries.playerId, id)))
+    : [db.update(queueEntries).set(updates).where(inArray(queueEntries.playerId, ids))];
   const statements = [
-    db.update(queueEntries).set(updates).where(inArray(queueEntries.playerId, ids)),
+    ...queueUpdates,
     ...(action === "level" ? [db.update(players).set({ level: normalizePlayerLevel(body.level), updatedAt: now }).where(inArray(players.id, ids))] : []),
     ...entries.map((entry) => db.insert(activityLogs).values({ id: crypto.randomUUID(), type: logType, playerId: entry.playerId, playerName: entry.playerName, details: JSON.stringify({ tableNumber: action === "standby" ? updates.standbyTableNumber : null }), managedBy: user?.displayName ?? null, createdAt: now })),
   ];
